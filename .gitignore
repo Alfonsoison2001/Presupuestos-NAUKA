@@ -8,7 +8,7 @@ venv/
 ENV/
 
 # Database
-*.db
+# *.db  # Comentado para incluir la base de datos en el repo
 
 # IDE
 .vscode/
