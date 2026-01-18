@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Presupuestos NAUKA</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>Presupuestos NAUKA</h1>
+            </div>
+            <div class="header-right">
+                <select id="proyecto-select" class="proyecto-select">
+                    <option value="">Seleccionar proyecto...</option>
+                </select>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Sidebar con resumen -->
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-section">
+                    <h3>Resumen del Proyecto</h3>
+                    <div id="resumen-proyecto">
+                        <p class="empty-state">Selecciona un proyecto</p>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>Filtros</h3>
+                    <div class="filtros">
+                        <label>Categoria:</label>
+                        <select id="filtro-categoria" class="filtro-select">
+                            <option value="">Todas</option>
+                        </select>
+
+                        <label>Concepto:</label>
+                        <select id="filtro-concepto" class="filtro-select">
+                            <option value="">Todos</option>
+                        </select>
+
+                        <button id="btn-limpiar-filtros" class="btn btn-secondary">Limpiar Filtros</button>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>Acciones</h3>
+                    <button id="btn-nueva-partida" class="btn btn-primary" disabled>+ Nueva Partida</button>
+                </div>
+            </aside>
+
+            <!-- Tabla de partidas -->
+            <section class="content">
+                <div class="tabla-header">
+                    <h2 id="titulo-tabla">Partidas del Presupuesto</h2>
+                    <div class="tabla-info">
+                        <span id="contador-partidas">0 partidas</span>
+                        <span id="total-filtrado">Total: $0.00 MXN</span>
+                    </div>
+                </div>
+
+                <div class="tabla-container">
+                    <table id="tabla-partidas">
+                        <thead>
+                            <tr>
+                                <th>Categoria</th>
+                                <th>Concepto</th>
+                                <th>Detalle</th>
+                                <th>Proveedor</th>
+                                <th>Unidad</th>
+                                <th class="num">Cantidad</th>
+                                <th>Moneda</th>
+                                <th class="num">Unitario</th>
+                                <th class="num">Importe</th>
+                                <th class="num">Sobrecosto</th>
+                                <th class="num">IVA</th>
+                                <th class="num">Total</th>
+                                <th class="num">T.C.</th>
+                                <th class="num">Total MXN</th>
+                                <th>Tipo</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-partidas">
+                            <tr class="empty-row">
+                                <td colspan="16">Selecciona un proyecto para ver sus partidas</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal para editar/crear partida -->
+    <div id="modal-partida" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-titulo">Editar Partida</h2>
+                <button class="modal-close" onclick="cerrarModal()">&times;</button>
+            </div>
+            <form id="form-partida" class="modal-body">
+                <input type="hidden" id="partida-id">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="partida-categoria">Categoria</label>
+                        <input type="text" id="partida-categoria" list="lista-categorias">
+                        <datalist id="lista-categorias"></datalist>
+                    </div>
+                    <div class="form-group">
+                        <label for="partida-concepto">Concepto</label>
+                        <input type="text" id="partida-concepto" list="lista-conceptos">
+                        <datalist id="lista-conceptos"></datalist>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group full-width">
+                        <label for="partida-detalle">Detalle</label>
+                        <input type="text" id="partida-detalle">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="partida-proveedor">Proveedor</label>
+                        <input type="text" id="partida-proveedor">
+                    </div>
+                    <div class="form-group">
+                        <label for="partida-unidad">Unidad</label>
+                        <input type="text" id="partida-unidad" list="lista-unidades">
+                        <datalist id="lista-unidades">
+                            <option value="Lote">
+                            <option value="m2">
+                            <option value="m3">
+                            <option value="ml">
+                            <option value="pza">
+                            <option value="kg">
+                            <option value="Mes">
+                            <option value="Semana">
+                            <option value="Servicio">
+                        </datalist>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="partida-cantidad">Cantidad</label>
+                        <input type="number" id="partida-cantidad" step="0.01" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="partida-moneda">Moneda</label>
+                        <select id="partida-moneda">
+                            <option value="MXN">MXN</option>
+                            <option value="USD">USD</option>
+                            <option value="EUR">EUR</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="partida-unitario">Precio Unitario</label>
+                        <input type="number" id="partida-unitario" step="0.01" value="0">
+                    </div>
+                </div>
+
+                <div class="form-row calculated">
+                    <div class="form-group">
+                        <label>Importe sin IVA</label>
+                        <input type="text" id="partida-importe" readonly>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="partida-sobrecosto">Sobrecosto (%)</label>
+                        <input type="number" id="partida-sobrecosto" step="0.01" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="partida-iva">IVA (%)</label>
+                        <input type="number" id="partida-iva" step="0.01" value="16">
+                    </div>
+                    <div class="form-group">
+                        <label for="partida-tc">Tipo de Cambio</label>
+                        <input type="number" id="partida-tc" step="0.01" value="1">
+                    </div>
+                </div>
+
+                <div class="form-row calculated">
+                    <div class="form-group">
+                        <label>Total MXN</label>
+                        <input type="text" id="partida-total-mxn" readonly>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="partida-tipo">Tipo</label>
+                        <select id="partida-tipo">
+                            <option value="PRESUPUESTO">Presupuesto</option>
+                            <option value="PARAMETRICO">Parametrico</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group full-width">
+                        <label for="partida-notas">Notas</label>
+                        <textarea id="partida-notas" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
