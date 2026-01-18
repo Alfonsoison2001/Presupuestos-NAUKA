@@ -140,6 +140,46 @@ def init_database():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_glosario_cat_proyecto ON glosario_categorias(proyecto_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_glosario_con_categoria ON glosario_conceptos(categoria_id)")
 
+    # Tabla de Cotizaciones de proveedores
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cotizaciones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proyecto_id INTEGER NOT NULL,
+            proveedor TEXT NOT NULL,
+            categorias TEXT,
+            archivo_nombre TEXT,
+            fecha_cotizacion DATE,
+            fecha_carga TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            num_items INTEGER DEFAULT 0,
+            total REAL DEFAULT 0,
+            moneda TEXT DEFAULT 'MXN',
+            notas TEXT,
+            FOREIGN KEY (proyecto_id) REFERENCES proyectos(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Tabla de Items/Unitarios extraídos de cotizaciones
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cotizacion_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cotizacion_id INTEGER NOT NULL,
+            codigo TEXT,
+            descripcion TEXT NOT NULL,
+            unidad TEXT,
+            cantidad REAL,
+            precio_unitario REAL,
+            importe REAL,
+            moneda TEXT DEFAULT 'MXN',
+            FOREIGN KEY (cotizacion_id) REFERENCES cotizaciones(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Índices para cotizaciones
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cot_proveedor ON cotizaciones(proveedor)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cot_proyecto ON cotizaciones(proyecto_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_cotizacion ON cotizacion_items(cotizacion_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_descripcion ON cotizacion_items(descripcion)")
+
     conn.commit()
     conn.close()
     print("Base de datos inicializada correctamente")
@@ -945,6 +985,458 @@ def importar_glosario_desde_excel(proyecto_id, archivo_excel):
     wb.close()
 
     return importados
+
+# ============== GLOSARIO GLOBAL DE PROVEEDORES ==============
+
+def obtener_proveedores_por_categoria_global():
+    """
+    Obtener todos los proveedores usados en todos los proyectos,
+    agrupados por categoría. Devuelve un diccionario con categorías
+    y sus proveedores únicos.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Obtener todas las combinaciones únicas de categoría-proveedor
+    cursor.execute("""
+        SELECT DISTINCT categoria, proveedor
+        FROM partidas
+        WHERE categoria IS NOT NULL AND categoria != ''
+        AND proveedor IS NOT NULL AND proveedor != ''
+        ORDER BY categoria, proveedor
+    """)
+
+    resultados = cursor.fetchall()
+    conn.close()
+
+    # Agrupar por categoría
+    categorias_dict = {}
+    for row in resultados:
+        categoria = row['categoria']
+        proveedor = row['proveedor']
+
+        if categoria not in categorias_dict:
+            categorias_dict[categoria] = []
+
+        if proveedor not in categorias_dict[categoria]:
+            categorias_dict[categoria].append(proveedor)
+
+    # Convertir a lista para JSON
+    resultado = []
+    for categoria in sorted(categorias_dict.keys()):
+        resultado.append({
+            'categoria': categoria,
+            'proveedores': sorted(categorias_dict[categoria]),
+            'num_proveedores': len(categorias_dict[categoria])
+        })
+
+    return resultado
+
+def obtener_estadisticas_proveedor(proveedor):
+    """
+    Obtener estadísticas de un proveedor específico:
+    - En qué proyectos aparece
+    - Total facturado
+    - Número de partidas
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            p.nombre as proyecto,
+            COUNT(pa.id) as num_partidas,
+            SUM(pa.total_mxn) as total_mxn
+        FROM partidas pa
+        JOIN proyectos p ON pa.proyecto_id = p.id
+        WHERE pa.proveedor = ?
+        GROUP BY p.id, p.nombre
+        ORDER BY total_mxn DESC
+    """, (proveedor,))
+
+    proyectos = [dict(row) for row in cursor.fetchall()]
+
+    # Totales generales
+    cursor.execute("""
+        SELECT
+            COUNT(*) as total_partidas,
+            SUM(total_mxn) as total_general,
+            COUNT(DISTINCT proyecto_id) as num_proyectos
+        FROM partidas
+        WHERE proveedor = ?
+    """, (proveedor,))
+
+    totales = dict(cursor.fetchone())
+    conn.close()
+
+    return {
+        'proveedor': proveedor,
+        'proyectos': proyectos,
+        'total_partidas': totales['total_partidas'] or 0,
+        'total_general': totales['total_general'] or 0,
+        'num_proyectos': totales['num_proyectos'] or 0
+    }
+
+# ============== FUNCIONES CRUD PARA COTIZACIONES ==============
+
+import json
+
+def crear_cotizacion(proyecto_id, proveedor, categorias=None, archivo_nombre=None,
+                     fecha_cotizacion=None, moneda='MXN', notas=None):
+    """Crear una nueva cotización"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Convertir lista de categorías a JSON
+    categorias_json = json.dumps(categorias) if categorias else None
+
+    cursor.execute("""
+        INSERT INTO cotizaciones (proyecto_id, proveedor, categorias, archivo_nombre,
+                                  fecha_cotizacion, moneda, notas)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (proyecto_id, proveedor, categorias_json, archivo_nombre,
+          fecha_cotizacion, moneda, notas))
+
+    conn.commit()
+    cotizacion_id = cursor.lastrowid
+    conn.close()
+    return cotizacion_id
+
+def obtener_cotizaciones(proyecto_id=None, proveedor=None, categoria=None):
+    """Obtener cotizaciones con filtros opcionales"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT c.*, p.nombre as proyecto_nombre
+        FROM cotizaciones c
+        JOIN proyectos p ON c.proyecto_id = p.id
+        WHERE 1=1
+    """
+    params = []
+
+    if proyecto_id:
+        query += " AND c.proyecto_id = ?"
+        params.append(proyecto_id)
+
+    if proveedor:
+        query += " AND c.proveedor = ?"
+        params.append(proveedor)
+
+    if categoria:
+        # Buscar en el JSON de categorías
+        query += " AND c.categorias LIKE ?"
+        params.append(f'%"{categoria}"%')
+
+    query += " ORDER BY c.fecha_carga DESC"
+
+    cursor.execute(query, params)
+    cotizaciones = []
+    for row in cursor.fetchall():
+        cot = dict(row)
+        # Parsear categorías de JSON
+        if cot.get('categorias'):
+            try:
+                cot['categorias'] = json.loads(cot['categorias'])
+            except:
+                cot['categorias'] = []
+        else:
+            cot['categorias'] = []
+        cotizaciones.append(cot)
+
+    conn.close()
+    return cotizaciones
+
+def obtener_cotizacion(cotizacion_id):
+    """Obtener una cotización por ID"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.*, p.nombre as proyecto_nombre
+        FROM cotizaciones c
+        JOIN proyectos p ON c.proyecto_id = p.id
+        WHERE c.id = ?
+    """, (cotizacion_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        cot = dict(row)
+        if cot.get('categorias'):
+            try:
+                cot['categorias'] = json.loads(cot['categorias'])
+            except:
+                cot['categorias'] = []
+        else:
+            cot['categorias'] = []
+        return cot
+    return None
+
+def actualizar_cotizacion(cotizacion_id, datos):
+    """Actualizar una cotización"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    categorias_json = json.dumps(datos.get('categorias')) if datos.get('categorias') else None
+
+    cursor.execute("""
+        UPDATE cotizaciones SET
+            proveedor = ?,
+            categorias = ?,
+            fecha_cotizacion = ?,
+            moneda = ?,
+            notas = ?
+        WHERE id = ?
+    """, (
+        datos.get('proveedor'),
+        categorias_json,
+        datos.get('fecha_cotizacion'),
+        datos.get('moneda', 'MXN'),
+        datos.get('notas'),
+        cotizacion_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+def eliminar_cotizacion(cotizacion_id):
+    """Eliminar una cotización y sus items"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM cotizaciones WHERE id = ?", (cotizacion_id,))
+    conn.commit()
+    conn.close()
+
+def actualizar_totales_cotizacion(cotizacion_id):
+    """Actualizar num_items y total de una cotización"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*) as num, COALESCE(SUM(importe), 0) as total
+        FROM cotizacion_items WHERE cotizacion_id = ?
+    """, (cotizacion_id,))
+    row = cursor.fetchone()
+
+    cursor.execute("""
+        UPDATE cotizaciones SET num_items = ?, total = ? WHERE id = ?
+    """, (row['num'], row['total'], cotizacion_id))
+
+    conn.commit()
+    conn.close()
+
+# ============== FUNCIONES CRUD PARA ITEMS DE COTIZACION ==============
+
+def crear_items_cotizacion(cotizacion_id, items):
+    """Crear múltiples items para una cotización"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    for item in items:
+        cursor.execute("""
+            INSERT INTO cotizacion_items (cotizacion_id, codigo, descripcion, unidad,
+                                          cantidad, precio_unitario, importe, moneda)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            cotizacion_id,
+            item.get('codigo'),
+            item.get('descripcion', ''),
+            item.get('unidad'),
+            item.get('cantidad'),
+            item.get('precio_unitario'),
+            item.get('importe'),
+            item.get('moneda', 'MXN')
+        ))
+
+    conn.commit()
+    conn.close()
+
+    # Actualizar totales
+    actualizar_totales_cotizacion(cotizacion_id)
+
+def obtener_items_cotizacion(cotizacion_id):
+    """Obtener items de una cotización"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM cotizacion_items
+        WHERE cotizacion_id = ?
+        ORDER BY id
+    """, (cotizacion_id,))
+    items = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return items
+
+def actualizar_item_cotizacion(item_id, datos):
+    """Actualizar un item de cotización"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Obtener cotizacion_id antes de actualizar
+    cursor.execute("SELECT cotizacion_id FROM cotizacion_items WHERE id = ?", (item_id,))
+    row = cursor.fetchone()
+    cotizacion_id = row['cotizacion_id'] if row else None
+
+    cursor.execute("""
+        UPDATE cotizacion_items SET
+            codigo = ?,
+            descripcion = ?,
+            unidad = ?,
+            cantidad = ?,
+            precio_unitario = ?,
+            importe = ?,
+            moneda = ?
+        WHERE id = ?
+    """, (
+        datos.get('codigo'),
+        datos.get('descripcion'),
+        datos.get('unidad'),
+        datos.get('cantidad'),
+        datos.get('precio_unitario'),
+        datos.get('importe'),
+        datos.get('moneda', 'MXN'),
+        item_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+    # Actualizar totales de la cotización
+    if cotizacion_id:
+        actualizar_totales_cotizacion(cotizacion_id)
+
+def eliminar_item_cotizacion(item_id):
+    """Eliminar un item de cotización"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Obtener cotizacion_id antes de eliminar
+    cursor.execute("SELECT cotizacion_id FROM cotizacion_items WHERE id = ?", (item_id,))
+    row = cursor.fetchone()
+    cotizacion_id = row['cotizacion_id'] if row else None
+
+    cursor.execute("DELETE FROM cotizacion_items WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+
+    # Actualizar totales
+    if cotizacion_id:
+        actualizar_totales_cotizacion(cotizacion_id)
+
+# ============== FUNCIONES PARA COMPARACION DE UNITARIOS ==============
+
+def obtener_proveedores_cotizaciones():
+    """Obtener lista de proveedores únicos que tienen cotizaciones"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT proveedor FROM cotizaciones
+        WHERE proveedor IS NOT NULL AND proveedor != ''
+        ORDER BY proveedor
+    """)
+    proveedores = [row['proveedor'] for row in cursor.fetchall()]
+    conn.close()
+    return proveedores
+
+def comparar_unitarios(proveedor, categoria=None):
+    """
+    Comparar precios unitarios de un proveedor entre diferentes proyectos.
+    Retorna una tabla con descripciones y precios por proyecto.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Obtener todas las cotizaciones del proveedor
+    query = """
+        SELECT c.id, c.proyecto_id, p.nombre as proyecto_nombre, c.categorias
+        FROM cotizaciones c
+        JOIN proyectos p ON c.proyecto_id = p.id
+        WHERE c.proveedor = ?
+    """
+    params = [proveedor]
+
+    if categoria:
+        query += " AND c.categorias LIKE ?"
+        params.append(f'%"{categoria}"%')
+
+    cursor.execute(query, params)
+    cotizaciones = cursor.fetchall()
+
+    if not cotizaciones:
+        conn.close()
+        return {'items': [], 'proyectos': []}
+
+    # Obtener IDs de cotizaciones
+    cotizacion_ids = [c['id'] for c in cotizaciones]
+    proyectos_dict = {c['proyecto_id']: c['proyecto_nombre'] for c in cotizaciones}
+
+    # Obtener todos los items de esas cotizaciones
+    placeholders = ','.join('?' * len(cotizacion_ids))
+    cursor.execute(f"""
+        SELECT ci.*, c.proyecto_id
+        FROM cotizacion_items ci
+        JOIN cotizaciones c ON ci.cotizacion_id = c.id
+        WHERE ci.cotizacion_id IN ({placeholders})
+        ORDER BY ci.descripcion
+    """, cotizacion_ids)
+
+    items = cursor.fetchall()
+    conn.close()
+
+    # Agrupar por descripción normalizada
+    comparacion = {}
+    for item in items:
+        desc = item['descripcion'].strip().upper() if item['descripcion'] else ''
+        if not desc:
+            continue
+
+        if desc not in comparacion:
+            comparacion[desc] = {
+                'descripcion': item['descripcion'],
+                'unidad': item['unidad'],
+                'precios': {}
+            }
+
+        proyecto_id = item['proyecto_id']
+        proyecto_nombre = proyectos_dict.get(proyecto_id, f'Proyecto {proyecto_id}')
+
+        # Guardar precio unitario por proyecto
+        if proyecto_nombre not in comparacion[desc]['precios']:
+            comparacion[desc]['precios'][proyecto_nombre] = item['precio_unitario']
+
+    # Convertir a lista y calcular diferencias
+    resultado = []
+    proyectos_lista = sorted(proyectos_dict.values())
+
+    for desc, data in comparacion.items():
+        precios = data['precios']
+        valores = [v for v in precios.values() if v is not None and v > 0]
+
+        item_resultado = {
+            'descripcion': data['descripcion'],
+            'unidad': data['unidad'],
+            'precios': precios
+        }
+
+        if len(valores) >= 2:
+            min_precio = min(valores)
+            max_precio = max(valores)
+            if min_precio > 0:
+                diferencia_pct = ((max_precio - min_precio) / min_precio) * 100
+                item_resultado['diferencia_pct'] = round(diferencia_pct, 1)
+                item_resultado['min_precio'] = min_precio
+                item_resultado['max_precio'] = max_precio
+
+        resultado.append(item_resultado)
+
+    # Ordenar por mayor diferencia
+    resultado.sort(key=lambda x: x.get('diferencia_pct', 0), reverse=True)
+
+    return {
+        'items': resultado,
+        'proyectos': proyectos_lista,
+        'proveedor': proveedor
+    }
 
 if __name__ == "__main__":
     init_database()

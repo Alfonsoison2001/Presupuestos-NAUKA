@@ -61,6 +61,8 @@
                     <button class="tab-btn active" data-tab="partidas">Partidas</button>
                     <button class="tab-btn" data-tab="resumen">Resumen</button>
                     <button class="tab-btn" data-tab="glosario">Glosario</button>
+                    <button class="tab-btn" data-tab="proveedores">Proveedores</button>
+                    <button class="tab-btn" data-tab="cotizaciones">Cotizaciones</button>
                 </div>
 
                 <!-- Tab Partidas -->
@@ -165,6 +167,82 @@
                     <div id="glosario-container" class="glosario-container">
                         <div class="empty-state">
                             <p>Selecciona un proyecto para ver su glosario</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab Proveedores Global -->
+                <div id="tab-proveedores" class="tab-content">
+                    <div class="proveedores-header">
+                        <h3>Proveedores por Categoria</h3>
+                        <p class="proveedores-subtitle">Glosario global de todos los proyectos</p>
+                    </div>
+                    <div class="proveedores-stats" id="proveedores-stats">
+                        <div class="stat-card">
+                            <span class="stat-valor" id="total-categorias-prov">0</span>
+                            <span class="stat-label">Categorias</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-valor" id="total-proveedores">0</span>
+                            <span class="stat-label">Proveedores</span>
+                        </div>
+                    </div>
+                    <div id="proveedores-container" class="proveedores-container">
+                        <div class="empty-state">
+                            <p>Cargando proveedores...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab Cotizaciones -->
+                <div id="tab-cotizaciones" class="tab-content">
+                    <div class="cotizaciones-header">
+                        <div class="cotizaciones-header-left">
+                            <h3>Cotizaciones de Proveedores</h3>
+                            <p class="cotizaciones-subtitle">Sube PDFs de cotizaciones para comparar precios unitarios</p>
+                        </div>
+                        <div class="cotizaciones-header-right">
+                            <button class="btn btn-secondary" onclick="mostrarComparacion()">
+                                Comparar Unitarios
+                            </button>
+                            <button class="btn btn-primary" onclick="mostrarModalSubirCotizacion()">
+                                + Subir Cotizacion
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filtros de cotizaciones -->
+                    <div class="cotizaciones-filtros">
+                        <select id="filtro-cot-proyecto" class="filtro-select">
+                            <option value="">Todos los proyectos</option>
+                        </select>
+                        <select id="filtro-cot-proveedor" class="filtro-select">
+                            <option value="">Todos los proveedores</option>
+                        </select>
+                        <button class="btn btn-secondary btn-small" onclick="cargarCotizaciones()">Filtrar</button>
+                    </div>
+
+                    <!-- Estadisticas -->
+                    <div class="cotizaciones-stats">
+                        <div class="stat-card">
+                            <span class="stat-valor" id="total-cotizaciones">0</span>
+                            <span class="stat-label">Cotizaciones</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-valor" id="total-items-cot">0</span>
+                            <span class="stat-label">Items totales</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-valor" id="total-proveedores-cot">0</span>
+                            <span class="stat-label">Proveedores</span>
+                        </div>
+                    </div>
+
+                    <!-- Lista de cotizaciones -->
+                    <div id="cotizaciones-lista" class="cotizaciones-lista">
+                        <div class="empty-state">
+                            <p>No hay cotizaciones cargadas</p>
+                            <p class="empty-state-hint">Sube un PDF de cotizacion para comenzar</p>
                         </div>
                     </div>
                 </div>
@@ -337,6 +415,157 @@
                     <button type="submit" class="btn btn-primary">Guardar</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal para ver detalles de proveedor -->
+    <div id="modal-proveedor" class="modal">
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h2 id="modal-proveedor-nombre">Detalles del Proveedor</h2>
+                <button class="modal-close" onclick="cerrarModalProveedor()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-proveedor-content">
+                <p>Cargando...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para subir cotizacion -->
+    <div id="modal-subir-cotizacion" class="modal">
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h2>Subir Cotizacion</h2>
+                <button class="modal-close" onclick="cerrarModalSubirCotizacion()">&times;</button>
+            </div>
+            <form id="form-subir-cotizacion" class="modal-body" onsubmit="procesarCotizacion(event)">
+                <div class="form-group">
+                    <label for="cot-archivo">Archivo (PDF o Excel)</label>
+                    <div class="file-upload-area" id="file-upload-area">
+                        <input type="file" id="cot-archivo" accept=".pdf,.xlsx,.xls" required onchange="mostrarNombreArchivo(this)">
+                        <div class="file-upload-text">
+                            <span class="file-upload-icon">PDF/XLS</span>
+                            <span id="file-upload-label">Arrastra un PDF o Excel, o haz clic para seleccionar</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cot-proyecto">Proyecto *</label>
+                        <select id="cot-proyecto" required>
+                            <option value="">Seleccionar proyecto...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="cot-proveedor">Proveedor *</label>
+                        <input type="text" id="cot-proveedor" required placeholder="Ej: Anteus" list="lista-proveedores-cot">
+                        <datalist id="lista-proveedores-cot"></datalist>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Categorias (selecciona una o mas)</label>
+                    <div id="cot-categorias-container" class="categorias-checkboxes">
+                        <!-- Se llena dinamicamente -->
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cot-fecha">Fecha de Cotizacion</label>
+                        <input type="date" id="cot-fecha">
+                    </div>
+                    <div class="form-group">
+                        <label for="cot-moneda">Moneda</label>
+                        <select id="cot-moneda">
+                            <option value="MXN">MXN</option>
+                            <option value="USD">USD</option>
+                            <option value="EUR">EUR</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="cot-notas">Notas</label>
+                    <textarea id="cot-notas" rows="2" placeholder="Notas adicionales..."></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="cerrarModalSubirCotizacion()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btn-procesar-cot">
+                        <span id="btn-procesar-text">Procesar PDF</span>
+                        <span id="btn-procesar-loading" class="hidden">Procesando...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para ver items de cotizacion -->
+    <div id="modal-items-cotizacion" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="modal-items-titulo">Items de Cotizacion</h2>
+                <button class="modal-close" onclick="cerrarModalItemsCotizacion()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="items-info" id="items-cot-info">
+                    <!-- Info de la cotizacion -->
+                </div>
+                <div class="tabla-container">
+                    <table class="tabla-items-cot">
+                        <thead>
+                            <tr>
+                                <th>Codigo</th>
+                                <th>Descripcion</th>
+                                <th>Unidad</th>
+                                <th class="num">Cantidad</th>
+                                <th class="num">P. Unitario</th>
+                                <th class="num">Importe</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-items-cot">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" onclick="cerrarModalItemsCotizacion()">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para comparar unitarios -->
+    <div id="modal-comparacion" class="modal">
+        <div class="modal-content modal-xlarge">
+            <div class="modal-header">
+                <h2>Comparacion de Precios Unitarios</h2>
+                <button class="modal-close" onclick="cerrarModalComparacion()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="comparacion-filtros">
+                    <div class="form-group">
+                        <label for="comp-proveedor">Proveedor</label>
+                        <select id="comp-proveedor" onchange="ejecutarComparacion()">
+                            <option value="">Seleccionar proveedor...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="comp-categoria">Categoria (opcional)</label>
+                        <select id="comp-categoria" onchange="ejecutarComparacion()">
+                            <option value="">Todas las categorias</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="comparacion-resultado" class="comparacion-resultado">
+                    <div class="empty-state">
+                        <p>Selecciona un proveedor para comparar precios</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

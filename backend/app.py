@@ -21,8 +21,15 @@ from models import (
     obtener_resumen_jerarquico_nivel3,
     obtener_glosario_proyecto, agregar_categoria_glosario, eliminar_categoria_glosario,
     agregar_concepto_glosario, eliminar_concepto_glosario, importar_glosario_desde_partidas,
-    importar_glosario_desde_excel
+    importar_glosario_desde_excel,
+    obtener_proveedores_por_categoria_global, obtener_estadisticas_proveedor,
+    # Cotizaciones
+    crear_cotizacion, obtener_cotizaciones, obtener_cotizacion, actualizar_cotizacion,
+    eliminar_cotizacion, crear_items_cotizacion, obtener_items_cotizacion,
+    actualizar_item_cotizacion, eliminar_item_cotizacion,
+    obtener_proveedores_cotizaciones, comparar_unitarios
 )
+from pdf_processor import extraer_items_pdf_bytes, extraer_items_excel_bytes
 
 # Ruta de los archivos Excel
 EXCEL_PATH = Path("C:/Users/Alfonso Ison/iCloudDrive/Desktop/PPTO NAUKA CLAUDE")
@@ -323,6 +330,215 @@ def api_importar_glosario_excel(proyecto_id):
     if 'error' in resultado:
         return jsonify(resultado), 400
 
+    return jsonify(resultado)
+
+# ============== API: GLOSARIO GLOBAL DE PROVEEDORES ==============
+
+@app.route('/api/proveedores-global', methods=['GET'])
+def api_proveedores_global():
+    """Obtener glosario global de proveedores por categoría (todos los proyectos)"""
+    proveedores = obtener_proveedores_por_categoria_global()
+    return jsonify(proveedores)
+
+@app.route('/api/proveedores-global/<path:proveedor>/estadisticas', methods=['GET'])
+def api_estadisticas_proveedor(proveedor):
+    """Obtener estadísticas de un proveedor específico"""
+    stats = obtener_estadisticas_proveedor(proveedor)
+    return jsonify(stats)
+
+# ============== API: COTIZACIONES ==============
+
+# Directorio para guardar PDFs subidos
+UPLOAD_FOLDER = Path(__file__).parent / "uploads"
+UPLOAD_FOLDER.mkdir(exist_ok=True)
+
+@app.route('/api/cotizaciones', methods=['GET'])
+def api_obtener_cotizaciones():
+    """Obtener lista de cotizaciones con filtros opcionales"""
+    proyecto_id = request.args.get('proyecto_id', type=int)
+    proveedor = request.args.get('proveedor')
+    categoria = request.args.get('categoria')
+
+    cotizaciones = obtener_cotizaciones(proyecto_id, proveedor, categoria)
+    return jsonify(cotizaciones)
+
+@app.route('/api/cotizaciones/<int:cotizacion_id>', methods=['GET'])
+def api_obtener_cotizacion(cotizacion_id):
+    """Obtener una cotización específica"""
+    cotizacion = obtener_cotizacion(cotizacion_id)
+    if cotizacion:
+        return jsonify(cotizacion)
+    return jsonify({'error': 'Cotización no encontrada'}), 404
+
+@app.route('/api/cotizaciones/upload', methods=['POST'])
+def api_subir_cotizacion():
+    """
+    Subir y procesar un PDF de cotización.
+    Extrae items usando Claude Vision.
+    """
+    import traceback
+    print("=== INICIO UPLOAD COTIZACION ===")
+
+    # Verificar que hay archivo
+    if 'archivo' not in request.files:
+        return jsonify({'error': 'No se envió archivo'}), 400
+
+    archivo = request.files['archivo']
+    if archivo.filename == '':
+        return jsonify({'error': 'Nombre de archivo vacío'}), 400
+
+    # Verificar extension permitida
+    nombre_lower = archivo.filename.lower()
+    es_pdf = nombre_lower.endswith('.pdf')
+    es_excel = nombre_lower.endswith('.xlsx') or nombre_lower.endswith('.xls')
+
+    if not es_pdf and not es_excel:
+        return jsonify({'error': 'Solo se permiten archivos PDF o Excel (.xlsx, .xls)'}), 400
+
+    # Obtener datos del formulario
+    proyecto_id = request.form.get('proyecto_id', type=int)
+    proveedor = request.form.get('proveedor', '').strip()
+    categorias = request.form.getlist('categorias[]')  # Lista de categorías
+    if not categorias:
+        # Intentar obtener como JSON string
+        categorias_str = request.form.get('categorias', '')
+        if categorias_str:
+            import json
+            try:
+                categorias = json.loads(categorias_str)
+            except:
+                categorias = [categorias_str] if categorias_str else []
+
+    fecha_cotizacion = request.form.get('fecha_cotizacion')
+    moneda = request.form.get('moneda', 'MXN')
+    notas = request.form.get('notas', '')
+
+    if not proyecto_id:
+        return jsonify({'error': 'proyecto_id es requerido'}), 400
+    if not proveedor:
+        return jsonify({'error': 'proveedor es requerido'}), 400
+
+    try:
+        # Leer bytes del archivo
+        print(f"Leyendo archivo: {archivo.filename}")
+        file_bytes = archivo.read()
+        print(f"Bytes leidos: {len(file_bytes)}")
+
+        # Procesar segun tipo de archivo
+        if es_pdf:
+            print("Procesando como PDF con Claude Vision...")
+            resultado = extraer_items_pdf_bytes(file_bytes, archivo.filename)
+        else:
+            print("Procesando como Excel...")
+            resultado = extraer_items_excel_bytes(file_bytes, archivo.filename)
+
+        print(f"Resultado: {len(resultado.get('items', []))} items, {len(resultado.get('errores', []))} errores")
+
+        if resultado['errores'] and not resultado['items']:
+            print(f"Errores encontrados: {resultado['errores'][:3]}")
+            return jsonify({
+                'error': 'Error procesando PDF',
+                'detalles': resultado['errores']
+            }), 500
+
+        # Crear la cotización en la base de datos
+        cotizacion_id = crear_cotizacion(
+            proyecto_id=proyecto_id,
+            proveedor=proveedor,
+            categorias=categorias,
+            archivo_nombre=archivo.filename,
+            fecha_cotizacion=fecha_cotizacion,
+            moneda=moneda,
+            notas=notas
+        )
+
+        # Guardar los items extraídos
+        if resultado['items']:
+            # Agregar moneda a cada item
+            for item in resultado['items']:
+                item['moneda'] = moneda
+            crear_items_cotizacion(cotizacion_id, resultado['items'])
+
+        # Guardar copia del archivo
+        ext = '.pdf' if es_pdf else ('.xlsx' if archivo.filename.lower().endswith('.xlsx') else '.xls')
+        archivo_path = UPLOAD_FOLDER / f"cotizacion_{cotizacion_id}{ext}"
+        with open(archivo_path, 'wb') as f:
+            f.write(file_bytes)
+
+        # Obtener la cotización creada
+        cotizacion = obtener_cotizacion(cotizacion_id)
+
+        return jsonify({
+            'cotizacion': cotizacion,
+            'items': resultado['items'],
+            'num_paginas': resultado['num_paginas'],
+            'errores': resultado['errores']
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cotizaciones/<int:cotizacion_id>', methods=['PUT'])
+def api_actualizar_cotizacion(cotizacion_id):
+    """Actualizar datos de una cotización"""
+    datos = request.json
+    actualizar_cotizacion(cotizacion_id, datos)
+    cotizacion = obtener_cotizacion(cotizacion_id)
+    return jsonify(cotizacion)
+
+@app.route('/api/cotizaciones/<int:cotizacion_id>', methods=['DELETE'])
+def api_eliminar_cotizacion(cotizacion_id):
+    """Eliminar una cotización y sus items"""
+    # Eliminar archivo PDF si existe
+    pdf_path = UPLOAD_FOLDER / f"cotizacion_{cotizacion_id}.pdf"
+    if pdf_path.exists():
+        pdf_path.unlink()
+
+    eliminar_cotizacion(cotizacion_id)
+    return jsonify({'success': True})
+
+@app.route('/api/cotizaciones/<int:cotizacion_id>/items', methods=['GET'])
+def api_obtener_items_cotizacion(cotizacion_id):
+    """Obtener items de una cotización"""
+    items = obtener_items_cotizacion(cotizacion_id)
+    return jsonify(items)
+
+@app.route('/api/cotizaciones/items/<int:item_id>', methods=['PUT'])
+def api_actualizar_item_cotizacion(item_id):
+    """Actualizar un item de cotización"""
+    datos = request.json
+    actualizar_item_cotizacion(item_id, datos)
+    return jsonify({'success': True})
+
+@app.route('/api/cotizaciones/items/<int:item_id>', methods=['DELETE'])
+def api_eliminar_item_cotizacion(item_id):
+    """Eliminar un item de cotización"""
+    eliminar_item_cotizacion(item_id)
+    return jsonify({'success': True})
+
+# ============== API: COMPARACION DE UNITARIOS ==============
+
+@app.route('/api/cotizaciones/proveedores', methods=['GET'])
+def api_proveedores_cotizaciones():
+    """Obtener lista de proveedores que tienen cotizaciones"""
+    proveedores = obtener_proveedores_cotizaciones()
+    return jsonify(proveedores)
+
+@app.route('/api/comparar-unitarios', methods=['GET'])
+def api_comparar_unitarios():
+    """
+    Comparar precios unitarios de un proveedor entre proyectos.
+    Params: proveedor (requerido), categoria (opcional)
+    """
+    proveedor = request.args.get('proveedor')
+    categoria = request.args.get('categoria')
+
+    if not proveedor:
+        return jsonify({'error': 'proveedor es requerido'}), 400
+
+    resultado = comparar_unitarios(proveedor, categoria)
     return jsonify(resultado)
 
 # ============== MAIN ==============

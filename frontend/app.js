@@ -1167,3 +1167,721 @@ function actualizarConceptosModal() {
         selectConcepto.innerHTML = '<option value="">Seleccionar concepto...</option>';
     }
 }
+
+// ============== GLOSARIO GLOBAL DE PROVEEDORES ==============
+
+let proveedoresGlobal = []; // Cache de proveedores globales
+
+async function cargarProveedoresGlobal() {
+    try {
+        proveedoresGlobal = await fetchAPI('/proveedores-global');
+        renderizarProveedoresGlobal();
+    } catch (error) {
+        console.error('Error cargando proveedores globales:', error);
+        document.getElementById('proveedores-container').innerHTML = `
+            <div class="empty-state">
+                <p>Error al cargar proveedores</p>
+            </div>
+        `;
+    }
+}
+
+function renderizarProveedoresGlobal() {
+    const container = document.getElementById('proveedores-container');
+
+    if (!proveedoresGlobal || proveedoresGlobal.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>No hay proveedores registrados en ningun proyecto</p>
+            </div>
+        `;
+        document.getElementById('total-categorias-prov').textContent = '0';
+        document.getElementById('total-proveedores').textContent = '0';
+        return;
+    }
+
+    // Calcular totales
+    const totalCategorias = proveedoresGlobal.length;
+    const totalProveedores = proveedoresGlobal.reduce((sum, cat) => sum + cat.num_proveedores, 0);
+
+    document.getElementById('total-categorias-prov').textContent = totalCategorias;
+    document.getElementById('total-proveedores').textContent = totalProveedores;
+
+    // Renderizar lista de categorías con proveedores
+    container.innerHTML = proveedoresGlobal.map(cat => `
+        <div class="proveedor-categoria">
+            <div class="proveedor-categoria-header">
+                <div class="proveedor-categoria-nombre">
+                    <span class="categoria-icon">📁</span>
+                    <span>${escapeHtml(cat.categoria)}</span>
+                    <span class="badge">${cat.num_proveedores} proveedor${cat.num_proveedores !== 1 ? 'es' : ''}</span>
+                </div>
+            </div>
+            <div class="proveedor-lista">
+                ${cat.proveedores.map(prov => `
+                    <div class="proveedor-item" onclick="verDetalleProveedor('${escapeJs(prov)}')">
+                        <span class="proveedor-nombre">${escapeHtml(prov)}</span>
+                        <span class="proveedor-ver">Ver detalles →</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+async function verDetalleProveedor(proveedor) {
+    const modal = document.getElementById('modal-proveedor');
+    const titulo = document.getElementById('modal-proveedor-nombre');
+    const contenido = document.getElementById('modal-proveedor-content');
+
+    titulo.textContent = proveedor;
+    contenido.innerHTML = '<p class="loading-text">Cargando estadisticas...</p>';
+    modal.classList.add('active');
+
+    try {
+        const stats = await fetchAPI(`/proveedores-global/${encodeURIComponent(proveedor)}/estadisticas`);
+
+        contenido.innerHTML = `
+            <div class="proveedor-stats-detalle">
+                <div class="stats-row">
+                    <div class="stat-box">
+                        <span class="stat-numero">${stats.num_proyectos}</span>
+                        <span class="stat-texto">Proyectos</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-numero">${stats.total_partidas}</span>
+                        <span class="stat-texto">Partidas</span>
+                    </div>
+                    <div class="stat-box stat-box-primary">
+                        <span class="stat-numero">${formatearMoneda(stats.total_general)}</span>
+                        <span class="stat-texto">Total Facturado</span>
+                    </div>
+                </div>
+
+                <h4 class="detalle-subtitulo">Desglose por Proyecto</h4>
+                <div class="proyectos-lista">
+                    ${stats.proyectos.length > 0 ? stats.proyectos.map(p => `
+                        <div class="proyecto-row">
+                            <span class="proyecto-nombre">${escapeHtml(p.proyecto)}</span>
+                            <span class="proyecto-partidas">${p.num_partidas} partidas</span>
+                            <span class="proyecto-total">${formatearMoneda(p.total_mxn)}</span>
+                        </div>
+                    `).join('') : '<p class="no-data">Sin datos</p>'}
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error cargando estadisticas del proveedor:', error);
+        contenido.innerHTML = '<p class="error-text">Error al cargar estadisticas</p>';
+    }
+}
+
+function cerrarModalProveedor() {
+    document.getElementById('modal-proveedor').classList.remove('active');
+}
+
+// Modificar configurarTabs para incluir el tab de Proveedores
+const originalConfigurarTabs = configurarTabs;
+configurarTabs = function() {
+    const tabBtns = document.querySelectorAll('.tab-btn');
+
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabId = btn.dataset.tab;
+
+            // Desactivar todos los tabs
+            tabBtns.forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            // Activar el tab seleccionado
+            btn.classList.add('active');
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+
+            // Cargar datos según el tab
+            if (tabId === 'resumen' && estado.proyectoActual) {
+                cargarResumenJerarquico();
+            }
+
+            if (tabId === 'glosario' && estado.proyectoActual) {
+                renderizarGlosario();
+            }
+
+            // Cargar proveedores globales cuando se selecciona el tab
+            if (tabId === 'proveedores') {
+                cargarProveedoresGlobal();
+            }
+
+            // Cargar cotizaciones cuando se selecciona el tab
+            if (tabId === 'cotizaciones') {
+                cargarCotizaciones();
+                cargarFiltrosCotizaciones();
+            }
+        });
+    });
+};
+
+// ============== COTIZACIONES ==============
+
+let cotizaciones = [];
+let cotizacionActual = null;
+let proveedoresCotizaciones = [];
+
+async function cargarCotizaciones() {
+    try {
+        const proyectoId = document.getElementById('filtro-cot-proyecto').value;
+        const proveedor = document.getElementById('filtro-cot-proveedor').value;
+
+        let url = '/cotizaciones';
+        const params = new URLSearchParams();
+        if (proyectoId) params.append('proyecto_id', proyectoId);
+        if (proveedor) params.append('proveedor', proveedor);
+        if (params.toString()) url += '?' + params.toString();
+
+        cotizaciones = await fetchAPI(url);
+        renderizarCotizaciones();
+
+        // Actualizar estadísticas
+        const proveedoresUnicos = [...new Set(cotizaciones.map(c => c.proveedor))];
+        const totalItems = cotizaciones.reduce((sum, c) => sum + (c.num_items || 0), 0);
+
+        document.getElementById('total-cotizaciones').textContent = cotizaciones.length;
+        document.getElementById('total-items-cot').textContent = totalItems;
+        document.getElementById('total-proveedores-cot').textContent = proveedoresUnicos.length;
+    } catch (error) {
+        console.error('Error cargando cotizaciones:', error);
+    }
+}
+
+async function cargarFiltrosCotizaciones() {
+    try {
+        // Cargar proyectos para el filtro
+        const proyectos = await fetchAPI('/proyectos');
+        const selectProyecto = document.getElementById('filtro-cot-proyecto');
+        selectProyecto.innerHTML = '<option value="">Todos los proyectos</option>';
+        proyectos.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.id;
+            option.textContent = p.nombre;
+            selectProyecto.appendChild(option);
+        });
+
+        // Cargar proveedores que tienen cotizaciones
+        proveedoresCotizaciones = await fetchAPI('/cotizaciones/proveedores');
+        const selectProveedor = document.getElementById('filtro-cot-proveedor');
+        selectProveedor.innerHTML = '<option value="">Todos los proveedores</option>';
+        proveedoresCotizaciones.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p;
+            option.textContent = p;
+            selectProveedor.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error cargando filtros de cotizaciones:', error);
+    }
+}
+
+function renderizarCotizaciones() {
+    const container = document.getElementById('cotizaciones-lista');
+
+    if (!cotizaciones || cotizaciones.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>No hay cotizaciones cargadas</p>
+                <p class="empty-state-hint">Sube un PDF de cotizacion para comenzar</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Agrupar por proveedor
+    const porProveedor = {};
+    cotizaciones.forEach(c => {
+        if (!porProveedor[c.proveedor]) {
+            porProveedor[c.proveedor] = [];
+        }
+        porProveedor[c.proveedor].push(c);
+    });
+
+    container.innerHTML = Object.entries(porProveedor).map(([proveedor, cots]) => `
+        <div class="cotizacion-grupo">
+            <div class="cotizacion-grupo-header">
+                <span class="proveedor-nombre">${escapeHtml(proveedor)}</span>
+                <span class="badge">${cots.length} cotizacion${cots.length !== 1 ? 'es' : ''}</span>
+            </div>
+            <div class="cotizacion-grupo-items">
+                ${cots.map(c => `
+                    <div class="cotizacion-card" onclick="verItemsCotizacion(${c.id})">
+                        <div class="cotizacion-card-header">
+                            <span class="cotizacion-proyecto">${escapeHtml(c.proyecto_nombre)}</span>
+                            <span class="cotizacion-fecha">${c.fecha_cotizacion || c.fecha_carga?.split('T')[0] || '-'}</span>
+                        </div>
+                        <div class="cotizacion-card-body">
+                            <div class="cotizacion-categorias">
+                                ${(c.categorias || []).map(cat => `<span class="tag">${escapeHtml(cat)}</span>`).join('')}
+                            </div>
+                            <div class="cotizacion-stats">
+                                <span>${c.num_items || 0} items</span>
+                                <span class="cotizacion-total">${formatearMoneda(c.total, c.moneda)}</span>
+                            </div>
+                        </div>
+                        <div class="cotizacion-card-footer">
+                            <span class="cotizacion-archivo">${escapeHtml(c.archivo_nombre || 'Sin archivo')}</span>
+                            <button class="btn-icon danger" onclick="event.stopPropagation(); eliminarCotizacion(${c.id})" title="Eliminar">×</button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+// Modal para subir cotización
+async function mostrarModalSubirCotizacion() {
+    // Cargar proyectos
+    const proyectos = await fetchAPI('/proyectos');
+    const selectProyecto = document.getElementById('cot-proyecto');
+    selectProyecto.innerHTML = '<option value="">Seleccionar proyecto...</option>';
+    proyectos.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.id;
+        option.textContent = p.nombre;
+        selectProyecto.appendChild(option);
+    });
+
+    // Cargar categorías del glosario (todas las categorías de todos los proyectos)
+    await cargarCategoriasParaCotizacion();
+
+    // Cargar lista de proveedores para autocompletado
+    const datalist = document.getElementById('lista-proveedores-cot');
+    datalist.innerHTML = proveedoresCotizaciones.map(p =>
+        `<option value="${escapeHtml(p)}">`
+    ).join('');
+
+    // Limpiar formulario
+    document.getElementById('cot-archivo').value = '';
+    document.getElementById('cot-proveedor').value = '';
+    document.getElementById('cot-fecha').value = '';
+    document.getElementById('cot-moneda').value = 'MXN';
+    document.getElementById('cot-notas').value = '';
+    document.getElementById('file-upload-label').textContent = 'Arrastra un PDF o haz clic para seleccionar';
+
+    document.getElementById('modal-subir-cotizacion').classList.add('active');
+}
+
+async function cargarCategoriasParaCotizacion() {
+    const container = document.getElementById('cot-categorias-container');
+
+    // Obtener categorías únicas de todos los proyectos (de las partidas)
+    let todasCategorias = new Set();
+
+    try {
+        const proyectos = await fetchAPI('/proyectos');
+        for (const p of proyectos) {
+            const categorias = await fetchAPI(`/proyectos/${p.id}/categorias`);
+            categorias.forEach(c => todasCategorias.add(c));
+        }
+    } catch (error) {
+        console.error('Error cargando categorías:', error);
+    }
+
+    const categoriasArray = Array.from(todasCategorias).sort();
+
+    if (categoriasArray.length === 0) {
+        container.innerHTML = '<p class="text-muted">No hay categorías disponibles</p>';
+        return;
+    }
+
+    container.innerHTML = categoriasArray.map(cat => `
+        <label class="categoria-checkbox">
+            <input type="checkbox" name="categorias" value="${escapeHtml(cat)}">
+            <span>${escapeHtml(cat)}</span>
+        </label>
+    `).join('');
+}
+
+function cerrarModalSubirCotizacion() {
+    document.getElementById('modal-subir-cotizacion').classList.remove('active');
+}
+
+function mostrarNombreArchivo(input) {
+    const label = document.getElementById('file-upload-label');
+    if (input.files && input.files[0]) {
+        label.textContent = input.files[0].name;
+    } else {
+        label.textContent = 'Arrastra un PDF o haz clic para seleccionar';
+    }
+}
+
+async function procesarCotizacion(event) {
+    event.preventDefault();
+
+    const archivo = document.getElementById('cot-archivo').files[0];
+    const proyectoId = document.getElementById('cot-proyecto').value;
+    const proveedor = document.getElementById('cot-proveedor').value.trim();
+    const fecha = document.getElementById('cot-fecha').value;
+    const moneda = document.getElementById('cot-moneda').value;
+    const notas = document.getElementById('cot-notas').value;
+
+    // Obtener categorías seleccionadas
+    const categoriasCheckboxes = document.querySelectorAll('input[name="categorias"]:checked');
+    const categorias = Array.from(categoriasCheckboxes).map(cb => cb.value);
+
+    if (!archivo) {
+        alert('Selecciona un archivo PDF');
+        return;
+    }
+    if (!proyectoId) {
+        alert('Selecciona un proyecto');
+        return;
+    }
+    if (!proveedor) {
+        alert('Ingresa el nombre del proveedor');
+        return;
+    }
+
+    // Mostrar estado de carga
+    const btnText = document.getElementById('btn-procesar-text');
+    const btnLoading = document.getElementById('btn-procesar-loading');
+    const btn = document.getElementById('btn-procesar-cot');
+
+    btnText.classList.add('hidden');
+    btnLoading.classList.remove('hidden');
+    btn.disabled = true;
+
+    try {
+        const formData = new FormData();
+        formData.append('archivo', archivo);
+        formData.append('proyecto_id', proyectoId);
+        formData.append('proveedor', proveedor);
+        formData.append('categorias', JSON.stringify(categorias));
+        formData.append('fecha_cotizacion', fecha);
+        formData.append('moneda', moneda);
+        formData.append('notas', notas);
+
+        const response = await fetch('/api/cotizaciones/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        const resultado = await response.json();
+
+        if (!response.ok) {
+            throw new Error(resultado.error || 'Error procesando PDF');
+        }
+
+        cerrarModalSubirCotizacion();
+
+        // Mostrar items extraídos
+        if (resultado.items && resultado.items.length > 0) {
+            alert(`Se extrajeron ${resultado.items.length} items de ${resultado.num_paginas} página(s)`);
+            await verItemsCotizacion(resultado.cotizacion.id);
+        } else {
+            alert('No se encontraron items en el PDF. Verifica que el formato sea correcto.');
+        }
+
+        // Recargar lista
+        await cargarCotizaciones();
+        await cargarFiltrosCotizaciones();
+
+    } catch (error) {
+        console.error('Error procesando cotización:', error);
+        alert('Error: ' + error.message);
+    } finally {
+        btnText.classList.remove('hidden');
+        btnLoading.classList.add('hidden');
+        btn.disabled = false;
+    }
+}
+
+async function eliminarCotizacion(id) {
+    if (!confirm('¿Eliminar esta cotización y todos sus items?')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/cotizaciones/${id}`, { method: 'DELETE' });
+        await cargarCotizaciones();
+    } catch (error) {
+        console.error('Error eliminando cotización:', error);
+        alert('Error al eliminar la cotización');
+    }
+}
+
+// Modal para ver items de cotización
+async function verItemsCotizacion(cotizacionId) {
+    try {
+        const [cotizacion, items] = await Promise.all([
+            fetchAPI(`/cotizaciones/${cotizacionId}`),
+            fetchAPI(`/cotizaciones/${cotizacionId}/items`)
+        ]);
+
+        cotizacionActual = cotizacion;
+
+        document.getElementById('modal-items-titulo').textContent =
+            `Items: ${cotizacion.proveedor} - ${cotizacion.proyecto_nombre}`;
+
+        document.getElementById('items-cot-info').innerHTML = `
+            <div class="items-info-grid">
+                <div><strong>Archivo:</strong> ${escapeHtml(cotizacion.archivo_nombre || '-')}</div>
+                <div><strong>Fecha:</strong> ${cotizacion.fecha_cotizacion || '-'}</div>
+                <div><strong>Moneda:</strong> ${cotizacion.moneda}</div>
+                <div><strong>Total:</strong> ${formatearMoneda(cotizacion.total, cotizacion.moneda)}</div>
+            </div>
+            <div class="items-categorias">
+                <strong>Categorías:</strong>
+                ${(cotizacion.categorias || []).map(c => `<span class="tag">${escapeHtml(c)}</span>`).join('') || '-'}
+            </div>
+        `;
+
+        renderizarItemsCotizacion(items);
+        document.getElementById('modal-items-cotizacion').classList.add('active');
+
+    } catch (error) {
+        console.error('Error cargando items:', error);
+        alert('Error al cargar los items');
+    }
+}
+
+function renderizarItemsCotizacion(items) {
+    const tbody = document.getElementById('tbody-items-cot');
+
+    if (!items || items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center">No hay items</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = items.map(item => `
+        <tr data-item-id="${item.id}">
+            <td>${escapeHtml(item.codigo || '-')}</td>
+            <td class="descripcion-cell" title="${escapeHtml(item.descripcion)}">${escapeHtml(item.descripcion)}</td>
+            <td>${escapeHtml(item.unidad || '-')}</td>
+            <td class="num">${formatearNumero(item.cantidad)}</td>
+            <td class="num">${formatearMoneda(item.precio_unitario, item.moneda)}</td>
+            <td class="num">${formatearMoneda(item.importe, item.moneda)}</td>
+            <td>
+                <button class="btn-icon" onclick="editarItemCotizacion(${item.id})" title="Editar">✎</button>
+                <button class="btn-icon danger" onclick="eliminarItemCotizacion(${item.id})" title="Eliminar">×</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function cerrarModalItemsCotizacion() {
+    document.getElementById('modal-items-cotizacion').classList.remove('active');
+    cotizacionActual = null;
+}
+
+async function editarItemCotizacion(itemId) {
+    const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
+    if (!row) return;
+
+    // Obtener datos actuales
+    const items = await fetchAPI(`/cotizaciones/${cotizacionActual.id}/items`);
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
+    // Convertir fila a editable
+    row.innerHTML = `
+        <td><input type="text" value="${escapeHtml(item.codigo || '')}" class="edit-input" id="edit-codigo-${itemId}"></td>
+        <td><input type="text" value="${escapeHtml(item.descripcion)}" class="edit-input" id="edit-desc-${itemId}"></td>
+        <td><input type="text" value="${escapeHtml(item.unidad || '')}" class="edit-input edit-small" id="edit-unidad-${itemId}"></td>
+        <td><input type="number" step="0.01" value="${item.cantidad || 0}" class="edit-input edit-small" id="edit-cant-${itemId}"></td>
+        <td><input type="number" step="0.01" value="${item.precio_unitario || 0}" class="edit-input edit-small" id="edit-pu-${itemId}"></td>
+        <td><input type="number" step="0.01" value="${item.importe || 0}" class="edit-input edit-small" id="edit-imp-${itemId}"></td>
+        <td>
+            <button class="btn-icon success" onclick="guardarItemCotizacion(${itemId})" title="Guardar">✓</button>
+            <button class="btn-icon" onclick="verItemsCotizacion(${cotizacionActual.id})" title="Cancelar">×</button>
+        </td>
+    `;
+}
+
+async function guardarItemCotizacion(itemId) {
+    const datos = {
+        codigo: document.getElementById(`edit-codigo-${itemId}`).value,
+        descripcion: document.getElementById(`edit-desc-${itemId}`).value,
+        unidad: document.getElementById(`edit-unidad-${itemId}`).value,
+        cantidad: parseFloat(document.getElementById(`edit-cant-${itemId}`).value) || 0,
+        precio_unitario: parseFloat(document.getElementById(`edit-pu-${itemId}`).value) || 0,
+        importe: parseFloat(document.getElementById(`edit-imp-${itemId}`).value) || 0,
+        moneda: cotizacionActual.moneda
+    };
+
+    try {
+        await fetchAPI(`/cotizaciones/items/${itemId}`, {
+            method: 'PUT',
+            body: JSON.stringify(datos)
+        });
+        await verItemsCotizacion(cotizacionActual.id);
+    } catch (error) {
+        console.error('Error guardando item:', error);
+        alert('Error al guardar');
+    }
+}
+
+async function eliminarItemCotizacion(itemId) {
+    if (!confirm('¿Eliminar este item?')) return;
+
+    try {
+        await fetchAPI(`/cotizaciones/items/${itemId}`, { method: 'DELETE' });
+        await verItemsCotizacion(cotizacionActual.id);
+    } catch (error) {
+        console.error('Error eliminando item:', error);
+        alert('Error al eliminar');
+    }
+}
+
+// ============== COMPARACION DE UNITARIOS ==============
+
+async function mostrarComparacion() {
+    // Cargar proveedores que tienen cotizaciones
+    const proveedores = await fetchAPI('/cotizaciones/proveedores');
+
+    const selectProveedor = document.getElementById('comp-proveedor');
+    selectProveedor.innerHTML = '<option value="">Seleccionar proveedor...</option>';
+    proveedores.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p;
+        option.textContent = p;
+        selectProveedor.appendChild(option);
+    });
+
+    // Cargar categorías
+    let todasCategorias = new Set();
+    try {
+        const proyectos = await fetchAPI('/proyectos');
+        for (const p of proyectos) {
+            const categorias = await fetchAPI(`/proyectos/${p.id}/categorias`);
+            categorias.forEach(c => todasCategorias.add(c));
+        }
+    } catch (error) {
+        console.error('Error cargando categorías:', error);
+    }
+
+    const selectCategoria = document.getElementById('comp-categoria');
+    selectCategoria.innerHTML = '<option value="">Todas las categorías</option>';
+    Array.from(todasCategorias).sort().forEach(c => {
+        const option = document.createElement('option');
+        option.value = c;
+        option.textContent = c;
+        selectCategoria.appendChild(option);
+    });
+
+    document.getElementById('comparacion-resultado').innerHTML = `
+        <div class="empty-state">
+            <p>Selecciona un proveedor para comparar precios</p>
+        </div>
+    `;
+
+    document.getElementById('modal-comparacion').classList.add('active');
+}
+
+function cerrarModalComparacion() {
+    document.getElementById('modal-comparacion').classList.remove('active');
+}
+
+async function ejecutarComparacion() {
+    const proveedor = document.getElementById('comp-proveedor').value;
+    const categoria = document.getElementById('comp-categoria').value;
+
+    if (!proveedor) {
+        document.getElementById('comparacion-resultado').innerHTML = `
+            <div class="empty-state">
+                <p>Selecciona un proveedor para comparar precios</p>
+            </div>
+        `;
+        return;
+    }
+
+    try {
+        let url = `/comparar-unitarios?proveedor=${encodeURIComponent(proveedor)}`;
+        if (categoria) {
+            url += `&categoria=${encodeURIComponent(categoria)}`;
+        }
+
+        const resultado = await fetchAPI(url);
+        renderizarComparacion(resultado);
+
+    } catch (error) {
+        console.error('Error en comparación:', error);
+        document.getElementById('comparacion-resultado').innerHTML = `
+            <div class="empty-state error">
+                <p>Error al cargar la comparación</p>
+            </div>
+        `;
+    }
+}
+
+function renderizarComparacion(resultado) {
+    const container = document.getElementById('comparacion-resultado');
+
+    if (!resultado.items || resultado.items.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>No hay items para comparar de este proveedor</p>
+                <p class="empty-state-hint">Sube cotizaciones de diferentes proyectos para poder comparar</p>
+            </div>
+        `;
+        return;
+    }
+
+    const proyectos = resultado.proyectos || [];
+
+    let html = `
+        <div class="comparacion-info">
+            <p><strong>Proveedor:</strong> ${escapeHtml(resultado.proveedor)}</p>
+            <p><strong>Proyectos:</strong> ${proyectos.join(', ')}</p>
+            <p><strong>Items:</strong> ${resultado.items.length}</p>
+        </div>
+        <div class="tabla-container">
+            <table class="tabla-comparacion">
+                <thead>
+                    <tr>
+                        <th>Descripción</th>
+                        <th>Unidad</th>
+                        ${proyectos.map(p => `<th class="num">${escapeHtml(p)}</th>`).join('')}
+                        <th class="num">Dif %</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    resultado.items.forEach(item => {
+        const tieneDiferencia = item.diferencia_pct && item.diferencia_pct > 0;
+        const claseFila = tieneDiferencia && item.diferencia_pct > 10 ? 'fila-alerta' : '';
+
+        html += `<tr class="${claseFila}">`;
+        html += `<td title="${escapeHtml(item.descripcion)}">${escapeHtml(truncar(item.descripcion, 40))}</td>`;
+        html += `<td>${escapeHtml(item.unidad || '-')}</td>`;
+
+        proyectos.forEach(p => {
+            const precio = item.precios[p];
+            let claseP = 'num';
+
+            if (tieneDiferencia && precio !== undefined && precio !== null) {
+                if (precio === item.max_precio) {
+                    claseP += ' precio-alto';
+                } else if (precio === item.min_precio) {
+                    claseP += ' precio-bajo';
+                }
+            }
+
+            html += `<td class="${claseP}">${precio !== undefined && precio !== null ? formatearMoneda(precio) : '-'}</td>`;
+        });
+
+        const difClass = tieneDiferencia ? (item.diferencia_pct > 10 ? 'dif-alta' : 'dif-media') : '';
+        html += `<td class="num ${difClass}">${item.diferencia_pct !== undefined ? '+' + item.diferencia_pct + '%' : '-'}</td>`;
+        html += '</tr>';
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+        <div class="comparacion-leyenda">
+            <span class="leyenda-item"><span class="color-box precio-alto"></span> Precio más alto</span>
+            <span class="leyenda-item"><span class="color-box precio-bajo"></span> Precio más bajo</span>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
