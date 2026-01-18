@@ -14,8 +14,18 @@ from models import (
     obtener_proyectos, obtener_proyecto, crear_proyecto, eliminar_proyecto,
     obtener_partidas, obtener_partida, crear_partida, actualizar_partida, eliminar_partida,
     obtener_categorias_proyecto, obtener_conceptos_proyecto,
-    obtener_resumen_proyecto, obtener_tipos_cambio, actualizar_tipo_cambio
+    obtener_resumen_proyecto, obtener_tipos_cambio, actualizar_tipo_cambio,
+    obtener_resumen_agrupado, obtener_torres_proyecto, obtener_pisos_proyecto,
+    obtener_proveedores_proyecto, obtener_deptos_proyecto,
+    obtener_resumen_jerarquico_nivel1, obtener_resumen_jerarquico_nivel2,
+    obtener_resumen_jerarquico_nivel3,
+    obtener_glosario_proyecto, agregar_categoria_glosario, eliminar_categoria_glosario,
+    agregar_concepto_glosario, eliminar_concepto_glosario, importar_glosario_desde_partidas,
+    importar_glosario_desde_excel
 )
+
+# Ruta de los archivos Excel
+EXCEL_PATH = Path("C:/Users/Alfonso Ison/iCloudDrive/Desktop/PPTO NAUKA CLAUDE")
 
 app = Flask(__name__, static_folder='../frontend', static_url_path='')
 CORS(app)
@@ -133,6 +143,82 @@ def api_obtener_resumen(proyecto_id):
     resumen = obtener_resumen_proyecto(proyecto_id)
     return jsonify(resumen)
 
+@app.route('/api/proyectos/<int:proyecto_id>/resumen-agrupado', methods=['GET'])
+def api_obtener_resumen_agrupado(proyecto_id):
+    """Obtener resumen agrupado por campos especificados"""
+    agrupar_por_str = request.args.get('agrupar_por', 'categoria')
+    agrupar_por = [c.strip() for c in agrupar_por_str.split(',') if c.strip()]
+    resumen = obtener_resumen_agrupado(proyecto_id, agrupar_por)
+    return jsonify(resumen)
+
+@app.route('/api/proyectos/<int:proyecto_id>/torres', methods=['GET'])
+def api_obtener_torres(proyecto_id):
+    """Obtener torres unicas de un proyecto"""
+    torres = obtener_torres_proyecto(proyecto_id)
+    return jsonify(torres)
+
+@app.route('/api/proyectos/<int:proyecto_id>/pisos', methods=['GET'])
+def api_obtener_pisos(proyecto_id):
+    """Obtener pisos unicos de un proyecto"""
+    pisos = obtener_pisos_proyecto(proyecto_id)
+    return jsonify(pisos)
+
+@app.route('/api/proyectos/<int:proyecto_id>/proveedores', methods=['GET'])
+def api_obtener_proveedores(proyecto_id):
+    """Obtener proveedores unicos de un proyecto"""
+    proveedores = obtener_proveedores_proyecto(proyecto_id)
+    return jsonify(proveedores)
+
+@app.route('/api/proyectos/<int:proyecto_id>/deptos', methods=['GET'])
+def api_obtener_deptos(proyecto_id):
+    """Obtener departamentos unicos de un proyecto"""
+    deptos = obtener_deptos_proyecto(proyecto_id)
+    return jsonify(deptos)
+
+# ============== API: RESUMEN JERARQUICO ==============
+
+@app.route('/api/proyectos/<int:proyecto_id>/resumen-jerarquico', methods=['GET'])
+def api_resumen_jerarquico_nivel1(proyecto_id):
+    """Obtener nivel 1 del resumen jerárquico: Categorías"""
+    filtros = {}
+    if request.args.get('torre'):
+        filtros['torre'] = request.args.get('torre')
+    if request.args.get('piso'):
+        filtros['piso'] = request.args.get('piso')
+    if request.args.get('depto'):
+        filtros['depto'] = request.args.get('depto')
+
+    resumen = obtener_resumen_jerarquico_nivel1(proyecto_id, filtros if filtros else None)
+    return jsonify(resumen)
+
+@app.route('/api/proyectos/<int:proyecto_id>/resumen-jerarquico/categoria/<path:categoria>', methods=['GET'])
+def api_resumen_jerarquico_nivel2(proyecto_id, categoria):
+    """Obtener nivel 2 del resumen jerárquico: Conceptos de una categoría"""
+    filtros = {}
+    if request.args.get('torre'):
+        filtros['torre'] = request.args.get('torre')
+    if request.args.get('piso'):
+        filtros['piso'] = request.args.get('piso')
+    if request.args.get('depto'):
+        filtros['depto'] = request.args.get('depto')
+
+    resumen = obtener_resumen_jerarquico_nivel2(proyecto_id, categoria, filtros if filtros else None)
+    return jsonify(resumen)
+
+@app.route('/api/proyectos/<int:proyecto_id>/resumen-jerarquico/categoria/<path:categoria>/concepto/<path:concepto>', methods=['GET'])
+def api_resumen_jerarquico_nivel3(proyecto_id, categoria, concepto):
+    """Obtener nivel 3 del resumen jerárquico: Detalles de un concepto"""
+    filtros = {}
+    if request.args.get('torre'):
+        filtros['torre'] = request.args.get('torre')
+    if request.args.get('piso'):
+        filtros['piso'] = request.args.get('piso')
+    if request.args.get('depto'):
+        filtros['depto'] = request.args.get('depto')
+
+    resumen = obtener_resumen_jerarquico_nivel3(proyecto_id, categoria, concepto, filtros if filtros else None)
+    return jsonify(resumen)
+
 # ============== API: TIPOS DE CAMBIO ==============
 
 @app.route('/api/tipos-cambio', methods=['GET'])
@@ -153,6 +239,91 @@ def api_actualizar_tipo_cambio():
 
     actualizar_tipo_cambio(moneda, float(valor))
     return jsonify({'success': True})
+
+# ============== API: GLOSARIO ==============
+
+@app.route('/api/proyectos/<int:proyecto_id>/glosario', methods=['GET'])
+def api_obtener_glosario(proyecto_id):
+    """Obtener glosario completo del proyecto"""
+    glosario = obtener_glosario_proyecto(proyecto_id)
+    return jsonify(glosario)
+
+@app.route('/api/proyectos/<int:proyecto_id>/glosario/categorias', methods=['POST'])
+def api_agregar_categoria_glosario(proyecto_id):
+    """Agregar una categoría al glosario"""
+    datos = request.json
+    nombre = datos.get('nombre')
+
+    if not nombre or not nombre.strip():
+        return jsonify({'error': 'El nombre es requerido'}), 400
+
+    resultado = agregar_categoria_glosario(proyecto_id, nombre)
+    if resultado:
+        return jsonify(resultado)
+    return jsonify({'error': 'La categoría ya existe'}), 409
+
+@app.route('/api/glosario/categorias/<int:categoria_id>', methods=['DELETE'])
+def api_eliminar_categoria_glosario(categoria_id):
+    """Eliminar una categoría del glosario"""
+    eliminar_categoria_glosario(categoria_id)
+    return jsonify({'success': True})
+
+@app.route('/api/glosario/categorias/<int:categoria_id>/conceptos', methods=['POST'])
+def api_agregar_concepto_glosario(categoria_id):
+    """Agregar un concepto a una categoría"""
+    datos = request.json
+    nombre = datos.get('nombre')
+
+    if not nombre or not nombre.strip():
+        return jsonify({'error': 'El nombre es requerido'}), 400
+
+    resultado = agregar_concepto_glosario(categoria_id, nombre)
+    if resultado:
+        return jsonify(resultado)
+    return jsonify({'error': 'El concepto ya existe en esta categoría'}), 409
+
+@app.route('/api/glosario/conceptos/<int:concepto_id>', methods=['DELETE'])
+def api_eliminar_concepto_glosario(concepto_id):
+    """Eliminar un concepto del glosario"""
+    eliminar_concepto_glosario(concepto_id)
+    return jsonify({'success': True})
+
+@app.route('/api/proyectos/<int:proyecto_id>/glosario/importar', methods=['POST'])
+def api_importar_glosario(proyecto_id):
+    """Importar categorías y conceptos desde las partidas existentes"""
+    resultado = importar_glosario_desde_partidas(proyecto_id)
+    return jsonify(resultado)
+
+@app.route('/api/proyectos/<int:proyecto_id>/glosario/importar-excel', methods=['POST'])
+def api_importar_glosario_excel(proyecto_id):
+    """Importar glosario desde el archivo Excel del proyecto"""
+    # Obtener el proyecto para saber qué archivo usar
+    proyecto = obtener_proyecto(proyecto_id)
+    if not proyecto:
+        return jsonify({'error': 'Proyecto no encontrado'}), 404
+
+    # Mapear proyecto a archivo Excel
+    nombre_proyecto = proyecto['nombre'].lower()
+    archivo_excel = None
+
+    if 'beachfront' in nombre_proyecto:
+        archivo_excel = EXCEL_PATH / "IZ - NAUKA PPTO Beachfront 170125.xlsx"
+    elif 'lote 3' in nombre_proyecto or 'lote3' in nombre_proyecto:
+        archivo_excel = EXCEL_PATH / "IZ - NAUKA PPTO Lote 3 170126.xlsx"
+    elif 'lote 44' in nombre_proyecto or 'lote44' in nombre_proyecto:
+        archivo_excel = EXCEL_PATH / "IZ - NAUKA PPTO Lote 44 170126.xlsx"
+    elif 'golf' in nombre_proyecto:
+        archivo_excel = EXCEL_PATH / "NAUKA - PPTO Casas Golf 281025.xlsx"
+
+    if not archivo_excel or not archivo_excel.exists():
+        return jsonify({'error': f'No se encontró archivo Excel para el proyecto: {proyecto["nombre"]}'}), 404
+
+    resultado = importar_glosario_desde_excel(proyecto_id, str(archivo_excel))
+
+    if 'error' in resultado:
+        return jsonify(resultado), 400
+
+    return jsonify(resultado)
 
 # ============== MAIN ==============
 

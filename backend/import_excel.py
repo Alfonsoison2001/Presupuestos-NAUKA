@@ -116,6 +116,12 @@ def importar_excel(archivo_path, nombre_proyecto):
                 col_map['notas'] = idx
             elif 'PARAMETR' in h_upper or 'PPTO' in h_upper:
                 col_map['es_parametro'] = idx
+            elif h_upper == 'TORRE':
+                col_map['torre'] = idx
+            elif h_upper == 'PISO':
+                col_map['piso'] = idx
+            elif h_upper == 'DEPTO' or h_upper == 'DEPARTAMENTO':
+                col_map['depto'] = idx
 
     print(f"Columnas mapeadas: {list(col_map.keys())}")
 
@@ -161,7 +167,10 @@ def importar_excel(archivo_path, nombre_proyecto):
                 'tipo_cambio': limpiar_numero(row.iloc[col_map['tipo_cambio']]) if 'tipo_cambio' in col_map else 1,
                 'total_mxn': limpiar_numero(row.iloc[col_map['total_mxn']]) if 'total_mxn' in col_map else 0,
                 'notas': limpiar_valor(row.iloc[col_map['notas']]) if 'notas' in col_map else '',
-                'es_parametro': limpiar_valor(row.iloc[col_map['es_parametro']]) if 'es_parametro' in col_map else 'PRESUPUESTO'
+                'es_parametro': limpiar_valor(row.iloc[col_map['es_parametro']]) if 'es_parametro' in col_map else 'PRESUPUESTO',
+                'torre': limpiar_valor(row.iloc[col_map['torre']]) if 'torre' in col_map else '',
+                'piso': limpiar_valor(row.iloc[col_map['piso']]) if 'piso' in col_map else '',
+                'depto': limpiar_valor(row.iloc[col_map['depto']]) if 'depto' in col_map else ''
             }
 
             # Asegurar moneda válida
@@ -178,8 +187,8 @@ def importar_excel(archivo_path, nombre_proyecto):
                     proyecto_id, categoria, concepto, detalle, proveedor, unidad,
                     cantidad, moneda, unitario, importe_sin_iva, sobrecosto_pct,
                     sobrecosto_monto, iva_pct, iva_monto, importe_total, tipo_cambio,
-                    total_mxn, notas, es_parametro
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    total_mxn, notas, es_parametro, torre, piso, depto
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 proyecto_id,
                 datos['categoria'],
@@ -199,7 +208,10 @@ def importar_excel(archivo_path, nombre_proyecto):
                 datos['tipo_cambio'],
                 datos['total_mxn'],
                 datos['notas'] or '',
-                datos['es_parametro'] or 'PRESUPUESTO'
+                datos['es_parametro'] or 'PRESUPUESTO',
+                datos['torre'] or '',
+                datos['piso'] or '',
+                datos['depto'] or ''
             ))
 
             partidas_importadas += 1

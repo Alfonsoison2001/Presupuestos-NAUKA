@@ -54,44 +54,119 @@
                 </div>
             </aside>
 
-            <!-- Tabla de partidas -->
+            <!-- Content Area con Tabs -->
             <section class="content">
-                <div class="tabla-header">
-                    <h2 id="titulo-tabla">Partidas del Presupuesto</h2>
-                    <div class="tabla-info">
-                        <span id="contador-partidas">0 partidas</span>
-                        <span id="total-filtrado">Total: $0.00 MXN</span>
+                <!-- Tabs de navegacion -->
+                <div class="tabs-container">
+                    <button class="tab-btn active" data-tab="partidas">Partidas</button>
+                    <button class="tab-btn" data-tab="resumen">Resumen</button>
+                    <button class="tab-btn" data-tab="glosario">Glosario</button>
+                </div>
+
+                <!-- Tab Partidas -->
+                <div id="tab-partidas" class="tab-content active">
+                    <div class="tabla-header">
+                        <h2 id="titulo-tabla">Partidas del Presupuesto</h2>
+                        <div class="tabla-info">
+                            <span id="contador-partidas">0 partidas</span>
+                            <span id="total-filtrado">Total: $0.00 MXN</span>
+                        </div>
+                    </div>
+
+                    <div class="tabla-container">
+                        <table id="tabla-partidas">
+                            <thead>
+                                <tr>
+                                    <th>Categoria</th>
+                                    <th>Concepto</th>
+                                    <th>Detalle</th>
+                                    <th>Proveedor</th>
+                                    <th>Torre</th>
+                                    <th>Piso</th>
+                                    <th>Depto</th>
+                                    <th>Unidad</th>
+                                    <th class="num">Cantidad</th>
+                                    <th>Moneda</th>
+                                    <th class="num">Unitario</th>
+                                    <th class="num">Importe</th>
+                                    <th class="num">Sobrecosto</th>
+                                    <th class="num">IVA</th>
+                                    <th class="num">Total</th>
+                                    <th class="num">T.C.</th>
+                                    <th class="num">Total MXN</th>
+                                    <th>Tipo</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-partidas">
+                                <tr class="empty-row">
+                                    <td colspan="19">Selecciona un proyecto para ver sus partidas</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
-                <div class="tabla-container">
-                    <table id="tabla-partidas">
-                        <thead>
-                            <tr>
-                                <th>Categoria</th>
-                                <th>Concepto</th>
-                                <th>Detalle</th>
-                                <th>Proveedor</th>
-                                <th>Unidad</th>
-                                <th class="num">Cantidad</th>
-                                <th>Moneda</th>
-                                <th class="num">Unitario</th>
-                                <th class="num">Importe</th>
-                                <th class="num">Sobrecosto</th>
-                                <th class="num">IVA</th>
-                                <th class="num">Total</th>
-                                <th class="num">T.C.</th>
-                                <th class="num">Total MXN</th>
-                                <th>Tipo</th>
-                                <th>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tbody-partidas">
-                            <tr class="empty-row">
-                                <td colspan="16">Selecciona un proyecto para ver sus partidas</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- Tab Resumen -->
+                <div id="tab-resumen" class="tab-content">
+                    <!-- Cards de totales mejorados -->
+                    <div class="resumen-totales-cards">
+                        <div class="total-card total-card-main">
+                            <span class="total-label">Total Proyecto</span>
+                            <span class="total-valor" id="resumen-total-proyecto">$0.00</span>
+                        </div>
+                        <div class="total-card">
+                            <span class="total-label">Categorias</span>
+                            <span class="total-valor" id="resumen-num-categorias">0</span>
+                        </div>
+                        <div class="total-card">
+                            <span class="total-label">Partidas</span>
+                            <span class="total-valor" id="resumen-total-partidas">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Filtros Beachfront (ocultos por defecto) -->
+                    <div id="filtros-beachfront" class="filtros-beachfront hidden">
+                        <div class="filtros-beachfront-inner">
+                            <select id="filtro-resumen-torre" class="filtro-select-small">
+                                <option value="">Todas las Torres</option>
+                            </select>
+                            <select id="filtro-resumen-piso" class="filtro-select-small">
+                                <option value="">Todos los Pisos</option>
+                            </select>
+                            <select id="filtro-resumen-depto" class="filtro-select-small">
+                                <option value="">Todos los Deptos</option>
+                            </select>
+                            <button id="btn-aplicar-filtros-resumen" class="btn btn-primary btn-small">Aplicar</button>
+                        </div>
+                    </div>
+
+                    <!-- Arbol jerarquico -->
+                    <div id="arbol-resumen" class="arbol-container">
+                        <div class="arbol-empty">
+                            <p>Selecciona un proyecto para ver el resumen jerarquico</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab Glosario -->
+                <div id="tab-glosario" class="tab-content">
+                    <div class="glosario-header">
+                        <h3>Glosario del Proyecto</h3>
+                        <div class="glosario-actions">
+                            <button class="btn btn-secondary" onclick="importarGlosario()">
+                                Importar desde partidas
+                            </button>
+                            <button class="btn btn-primary" onclick="mostrarModalAgregarCategoria()">
+                                + Agregar Categoria
+                            </button>
+                        </div>
+                    </div>
+                    <div id="glosario-container" class="glosario-container">
+                        <div class="empty-state">
+                            <p>Selecciona un proyecto para ver su glosario</p>
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>
@@ -110,13 +185,15 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="partida-categoria">Categoria</label>
-                        <input type="text" id="partida-categoria" list="lista-categorias">
-                        <datalist id="lista-categorias"></datalist>
+                        <select id="partida-categoria" onchange="actualizarConceptosModal()">
+                            <option value="">Seleccionar categoria...</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label for="partida-concepto">Concepto</label>
-                        <input type="text" id="partida-concepto" list="lista-conceptos">
-                        <datalist id="lista-conceptos"></datalist>
+                        <select id="partida-concepto">
+                            <option value="">Seleccionar concepto...</option>
+                        </select>
                     </div>
                 </div>
 
@@ -216,6 +293,47 @@
 
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para agregar categoria al glosario -->
+    <div id="modal-categoria" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Agregar Categoria</h2>
+                <button class="modal-close" onclick="cerrarModalCategoria()">&times;</button>
+            </div>
+            <form id="form-categoria" class="modal-body" onsubmit="guardarCategoria(event)">
+                <div class="form-group">
+                    <label for="nueva-categoria">Nombre de la categoria</label>
+                    <input type="text" id="nueva-categoria" required placeholder="Ej: Carpinterias">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="cerrarModalCategoria()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para agregar concepto al glosario -->
+    <div id="modal-concepto" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Agregar Concepto</h2>
+                <button class="modal-close" onclick="cerrarModalConcepto()">&times;</button>
+            </div>
+            <form id="form-concepto" class="modal-body" onsubmit="guardarConcepto(event)">
+                <input type="hidden" id="concepto-categoria-id">
+                <div class="form-group">
+                    <label for="nuevo-concepto">Nombre del concepto</label>
+                    <input type="text" id="nuevo-concepto" required placeholder="Ej: Closets">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="cerrarModalConcepto()">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Guardar</button>
                 </div>
             </form>
