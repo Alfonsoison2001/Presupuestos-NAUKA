@@ -1463,7 +1463,10 @@ async function mostrarModalSubirCotizacion() {
     document.getElementById('cot-fecha').value = '';
     document.getElementById('cot-moneda').value = 'MXN';
     document.getElementById('cot-notas').value = '';
-    document.getElementById('file-upload-label').textContent = 'Arrastra un PDF o haz clic para seleccionar';
+    document.getElementById('file-upload-label').textContent = 'Solo archivos Excel (.xlsx, .xls) - Haz clic para seleccionar';
+
+    // Ocultar indicador de progreso si estaba visible
+    document.getElementById('upload-progress-container').classList.add('hidden');
 
     document.getElementById('modal-subir-cotizacion').classList.add('active');
 }
@@ -1506,9 +1509,26 @@ function cerrarModalSubirCotizacion() {
 function mostrarNombreArchivo(input) {
     const label = document.getElementById('file-upload-label');
     if (input.files && input.files[0]) {
+        const fileName = input.files[0].name.toLowerCase();
+
+        // Validar que sea archivo Excel
+        if (fileName.endsWith('.pdf')) {
+            alert('Los archivos PDF ya no son soportados.\n\nPor favor convierte tu PDF a Excel (.xlsx o .xls) antes de subirlo.\n\nPuedes usar herramientas como:\n- Adobe Acrobat\n- SmallPDF.com\n- Copiar/pegar datos en Excel');
+            input.value = '';
+            label.textContent = 'Solo archivos Excel (.xlsx, .xls) - Haz clic para seleccionar';
+            return;
+        }
+
+        if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+            alert('Solo se aceptan archivos Excel (.xlsx, .xls)');
+            input.value = '';
+            label.textContent = 'Solo archivos Excel (.xlsx, .xls) - Haz clic para seleccionar';
+            return;
+        }
+
         label.textContent = input.files[0].name;
     } else {
-        label.textContent = 'Arrastra un PDF o haz clic para seleccionar';
+        label.textContent = 'Solo archivos Excel (.xlsx, .xls) - Haz clic para seleccionar';
     }
 }
 
@@ -1527,9 +1547,17 @@ async function procesarCotizacion(event) {
     const categorias = Array.from(categoriasCheckboxes).map(cb => cb.value);
 
     if (!archivo) {
-        alert('Selecciona un archivo PDF');
+        alert('Selecciona un archivo Excel (.xlsx, .xls)');
         return;
     }
+
+    // Validar que sea Excel (doble verificacion)
+    const fileName = archivo.name.toLowerCase();
+    if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+        alert('Solo se aceptan archivos Excel (.xlsx, .xls)\n\nSi tienes un PDF, conviertelo primero a Excel.');
+        return;
+    }
+
     if (!proyectoId) {
         alert('Selecciona un proyecto');
         return;
@@ -1539,11 +1567,15 @@ async function procesarCotizacion(event) {
         return;
     }
 
-    // Mostrar estado de carga
+    // Mostrar indicador de progreso circular
+    const progressContainer = document.getElementById('upload-progress-container');
+    const progressStatus = document.getElementById('upload-progress-status');
     const btnText = document.getElementById('btn-procesar-text');
     const btnLoading = document.getElementById('btn-procesar-loading');
     const btn = document.getElementById('btn-procesar-cot');
 
+    progressContainer.classList.remove('hidden');
+    progressStatus.textContent = 'Subiendo archivo...';
     btnText.classList.add('hidden');
     btnLoading.classList.remove('hidden');
     btn.disabled = true;
@@ -1558,6 +1590,9 @@ async function procesarCotizacion(event) {
         formData.append('moneda', moneda);
         formData.append('notas', notas);
 
+        // Actualizar estado de progreso
+        progressStatus.textContent = 'Procesando datos...';
+
         const response = await fetch('/api/cotizaciones/upload', {
             method: 'POST',
             body: formData
@@ -1566,17 +1601,27 @@ async function procesarCotizacion(event) {
         const resultado = await response.json();
 
         if (!response.ok) {
-            throw new Error(resultado.error || 'Error procesando PDF');
+            // Manejar error especifico de PDF no soportado
+            if (resultado.mensaje) {
+                throw new Error(resultado.mensaje);
+            }
+            throw new Error(resultado.error || 'Error procesando archivo');
         }
+
+        // Mostrar estado de exito
+        progressStatus.textContent = 'Listo!';
+
+        // Esperar un momento para mostrar el mensaje de exito
+        await new Promise(resolve => setTimeout(resolve, 500));
 
         cerrarModalSubirCotizacion();
 
         // Mostrar items extraídos
         if (resultado.items && resultado.items.length > 0) {
-            alert(`Se extrajeron ${resultado.items.length} items de ${resultado.num_paginas} página(s)`);
+            alert(`Se extrajeron ${resultado.items.length} items del archivo Excel`);
             await verItemsCotizacion(resultado.cotizacion.id);
         } else {
-            alert('No se encontraron items en el PDF. Verifica que el formato sea correcto.');
+            alert('No se encontraron items en el archivo. Verifica que el formato sea correcto (columnas: codigo, descripcion, cantidad, precio, importe).');
         }
 
         // Recargar lista
@@ -1585,11 +1630,13 @@ async function procesarCotizacion(event) {
 
     } catch (error) {
         console.error('Error procesando cotización:', error);
+        progressStatus.textContent = 'Error';
         alert('Error: ' + error.message);
     } finally {
         btnText.classList.remove('hidden');
         btnLoading.classList.add('hidden');
         btn.disabled = false;
+        progressContainer.classList.add('hidden');
     }
 }
 

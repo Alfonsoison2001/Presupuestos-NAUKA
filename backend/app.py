@@ -29,7 +29,7 @@ from models import (
     actualizar_item_cotizacion, eliminar_item_cotizacion,
     obtener_proveedores_cotizaciones, comparar_unitarios
 )
-from pdf_processor import extraer_items_pdf_bytes, extraer_items_excel_bytes
+from pdf_processor import extraer_items_excel_bytes
 
 # Ruta de los archivos Excel
 EXCEL_PATH = Path("C:/Users/Alfonso Ison/iCloudDrive/Desktop/PPTO NAUKA CLAUDE")
@@ -373,8 +373,8 @@ def api_obtener_cotizacion(cotizacion_id):
 @app.route('/api/cotizaciones/upload', methods=['POST'])
 def api_subir_cotizacion():
     """
-    Subir y procesar un PDF de cotización.
-    Extrae items usando Claude Vision.
+    Subir y procesar un archivo Excel de cotizacion.
+    Solo acepta archivos .xlsx y .xls (PDFs ya no son soportados).
     """
     import traceback
     print("=== INICIO UPLOAD COTIZACION ===")
@@ -387,13 +387,21 @@ def api_subir_cotizacion():
     if archivo.filename == '':
         return jsonify({'error': 'Nombre de archivo vacío'}), 400
 
-    # Verificar extension permitida
+    # Verificar extension permitida - SOLO EXCEL (PDF ya no es soportado)
     nombre_lower = archivo.filename.lower()
     es_pdf = nombre_lower.endswith('.pdf')
     es_excel = nombre_lower.endswith('.xlsx') or nombre_lower.endswith('.xls')
 
-    if not es_pdf and not es_excel:
-        return jsonify({'error': 'Solo se permiten archivos PDF o Excel (.xlsx, .xls)'}), 400
+    # Rechazar PDFs con mensaje explicativo
+    if es_pdf:
+        return jsonify({
+            'error': 'Los archivos PDF ya no son soportados',
+            'mensaje': 'Por favor convierte tu PDF a Excel (.xlsx o .xls) antes de subirlo. Puedes usar herramientas como Adobe Acrobat, SmallPDF, o copiar/pegar los datos en Excel.',
+            'detalles': ['Los PDFs requerian API de pago', 'Excel es mas preciso y gratuito', 'Tu puedes verificar los datos antes de subir']
+        }), 400
+
+    if not es_excel:
+        return jsonify({'error': 'Solo se permiten archivos Excel (.xlsx, .xls)'}), 400
 
     # Obtener datos del formulario
     proyecto_id = request.form.get('proyecto_id', type=int)
@@ -424,20 +432,16 @@ def api_subir_cotizacion():
         file_bytes = archivo.read()
         print(f"Bytes leidos: {len(file_bytes)}")
 
-        # Procesar segun tipo de archivo
-        if es_pdf:
-            print("Procesando como PDF con Claude Vision...")
-            resultado = extraer_items_pdf_bytes(file_bytes, archivo.filename)
-        else:
-            print("Procesando como Excel...")
-            resultado = extraer_items_excel_bytes(file_bytes, archivo.filename)
+        # Procesar archivo Excel
+        print("Procesando archivo Excel...")
+        resultado = extraer_items_excel_bytes(file_bytes, archivo.filename)
 
         print(f"Resultado: {len(resultado.get('items', []))} items, {len(resultado.get('errores', []))} errores")
 
         if resultado['errores'] and not resultado['items']:
             print(f"Errores encontrados: {resultado['errores'][:3]}")
             return jsonify({
-                'error': 'Error procesando PDF',
+                'error': 'Error procesando Excel',
                 'detalles': resultado['errores']
             }), 500
 
@@ -459,8 +463,8 @@ def api_subir_cotizacion():
                 item['moneda'] = moneda
             crear_items_cotizacion(cotizacion_id, resultado['items'])
 
-        # Guardar copia del archivo
-        ext = '.pdf' if es_pdf else ('.xlsx' if archivo.filename.lower().endswith('.xlsx') else '.xls')
+        # Guardar copia del archivo Excel
+        ext = '.xlsx' if archivo.filename.lower().endswith('.xlsx') else '.xls'
         archivo_path = UPLOAD_FOLDER / f"cotizacion_{cotizacion_id}{ext}"
         with open(archivo_path, 'wb') as f:
             f.write(file_bytes)

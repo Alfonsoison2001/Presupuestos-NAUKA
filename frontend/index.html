@@ -199,7 +199,7 @@
                     <div class="cotizaciones-header">
                         <div class="cotizaciones-header-left">
                             <h3>Cotizaciones de Proveedores</h3>
-                            <p class="cotizaciones-subtitle">Sube PDFs de cotizaciones para comparar precios unitarios</p>
+                            <p class="cotizaciones-subtitle">Sube archivos Excel de cotizaciones para comparar precios unitarios</p>
                         </div>
                         <div class="cotizaciones-header-right">
                             <button class="btn btn-secondary" onclick="mostrarComparacion()">
@@ -440,14 +440,24 @@
             </div>
             <form id="form-subir-cotizacion" class="modal-body" onsubmit="procesarCotizacion(event)">
                 <div class="form-group">
-                    <label for="cot-archivo">Archivo (PDF o Excel)</label>
+                    <label for="cot-archivo">Archivo Excel (solo .xlsx o .xls)</label>
                     <div class="file-upload-area" id="file-upload-area">
-                        <input type="file" id="cot-archivo" accept=".pdf,.xlsx,.xls" required onchange="mostrarNombreArchivo(this)">
+                        <input type="file" id="cot-archivo" accept=".xlsx,.xls" required onchange="mostrarNombreArchivo(this)">
                         <div class="file-upload-text">
-                            <span class="file-upload-icon">PDF/XLS</span>
-                            <span id="file-upload-label">Arrastra un PDF o Excel, o haz clic para seleccionar</span>
+                            <span class="file-upload-icon-excel">XLSX</span>
+                            <span id="file-upload-label">Solo archivos Excel (.xlsx, .xls) - Haz clic para seleccionar</span>
                         </div>
                     </div>
+                    <div class="excel-help-message">
+                        <strong>PDFs ya no son soportados</strong>
+                        Convierte tu PDF a Excel primero usando Adobe Acrobat, SmallPDF.com, o copia/pega los datos en Excel.
+                    </div>
+                </div>
+
+                <!-- Indicador de progreso circular -->
+                <div id="upload-progress-container" class="upload-progress-container hidden">
+                    <div class="upload-spinner"></div>
+                    <span id="upload-progress-status">Subiendo archivo...</span>
                 </div>
 
                 <div class="form-row">
@@ -494,7 +504,7 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="cerrarModalSubirCotizacion()">Cancelar</button>
                     <button type="submit" class="btn btn-primary" id="btn-procesar-cot">
-                        <span id="btn-procesar-text">Procesar PDF</span>
+                        <span id="btn-procesar-text">Procesar Excel</span>
                         <span id="btn-procesar-loading" class="hidden">Procesando...</span>
                     </button>
                 </div>
